@@ -90,10 +90,26 @@ function Invoke-GitHubAPIGet {
   return $resp
 }
 
-function SplitMembers ($membersString)
+function Split-Members ($membersString)
 {
   if (!$membersString) { return $null }
   return @($membersString.Split(",") | % { $_.Trim() } | ? { return $_ })
+}
+
+function Set-BodyParameters ($members,  $parameterName, $parameters, $allowEmptyMembers=$false)
+{
+  if ($members) { 
+    if ($members -is [array])
+    {
+      $parameters[$parameterName] = @($members)
+    }
+    elseif (![System.String]::IsNullOrWhiteSpace($members) -or $allowEmptyMembers) {
+      $memberAdditions = Split-Members -membersString $members
+      $parameters[$parameterName] = @($memberAdditions)
+    }
+  }
+
+  return $parameters
 }
 
 function List-PullRequests {
@@ -242,7 +258,7 @@ function Add-IssueLabels {
   }
 
   $uri = "$GithubAPIBaseURI/$RepoOwner/$RepoName/issues/$IssueNumber/labels"
-  $labelAdditions = SplitMembers -membersString $Labels
+  $labelAdditions = Split-Members -membersString $Labels
   $parameters = @{
     labels = @($labelAdditions)
   }
@@ -273,7 +289,7 @@ function Add-IssueAssignees {
   }
 
   $uri = "$GithubAPIBaseURI/$RepoOwner/$RepoName/issues/$IssueNumber/assignees"
-  $assigneesAdditions = SplitMembers -membersString $Assignees
+  $assigneesAdditions = Split-Members -membersString $Assignees
   $parameters = @{
     assignees = @($assigneesAdditions)
   }
@@ -289,44 +305,25 @@ function Request-PrReviewer {
     $RepoName,
     [Parameter(Mandatory = $true)]
     $PrNumber,
+    [ValidateNotNullOrEmpty()]
     $Users,
+    [ValidateNotNullOrEmpty()]
     $Teams,
     [Parameter(Mandatory = $true)]
     $AuthToken
   )
 
-  if (!$users -and !$teams)
-  {
-    throw "You must specify either Users or Teams."
-    exit 1
-  }
-
   $uri = "$GithubAPIBaseURI/$RepoOwner/$RepoName/pulls/$PrNumber/requested_reviewers"
   $parameters = @{}
+  $parameters = Set-BodyParameters -members $Users -parameterName "reviewers"` -parameters $parameters
+  $parameters = Set-BodyParameters -members $Users -parameterName "team_reviewers" -parameters $parameters
 
-  if ($Users) { 
-    if ($Users -is [array])
-    {
-      $parameters["reviewers"] = @($Users)
-    }
-    else {
-      $userAdditions = SplitMembers -membersString $Users
-      $parameters["reviewers"] = @($userAdditions)
-    }
+  if ($parameters.Count -gt 0) {
+    return Invoke-GitHubAPIPost -apiURI $uri -body $parameters -token AuthToken
   }
-
-  if ($Teams) { 
-    if ($Teams -is [array])
-    {
-      $parameters["team_reviewers"] = @($Teams)
-    }
-    else {
-      $teamAdditions = SplitMembers -membersString $Teams
-      $parameters["team_reviewers"] = @($teamAdditions)
-    }
+  else {
+    throw "Did not fire request because of empty body."
   }
-
-  return Invoke-GitHubAPIPost -apiURI $uri -body $parameters -token AuthToken
 }
 
 # For labels and assignee pass comma delimited string, to replace existing labels or assignees.
@@ -359,29 +356,17 @@ function Update-Issue {
   if ($State) { $parameters["state"] = $State }
   if ($Milestone) { $parameters["milestone"] = $Milestone }
 
-  if ($Labels) { 
-    if ($Labels -is [array])
-    {
-      $parameters["labels"] = @($Labels)
-    }
-    else {
-      $labelAdditions = SplitMembers -membersString $Labels
-      $parameters["labels"] = @($labelAdditions)
-    }
-  }
+  $parameters = Set-BodyParameters -members $Labels -parameterName "labels"`
+   -parameters $parameters -allowEmptyMembers $true
+  $parameters = Set-BodyParameters -members $Assignees -parameterName "assignees"`
+   -parameters $parameters -allowEmptyMembers $true
 
-  if ($Assignees) { 
-    if ($Assignees -is [array])
-    {
-      $parameters["labels"] = @($Assignees)
-    }
-    else {
-      $assigneesAdditions = SplitMembers -membersString $Assignees
-      $parameters["assignees"] = @($assigneesAdditions)
-    }
+  if ($parameters.Count -gt 0) {
+    return Invoke-GitHubAPIPatch -apiURI $uri -body $parameters -token $AuthToken
   }
-
-  return Invoke-GitHubAPIPatch -apiURI $uri -body $parameters -token $AuthToken
+  else {
+    throw "Did not fire request because of empty body."
+  }
 }
 
 function Delete-References {

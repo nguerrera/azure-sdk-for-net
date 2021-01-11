@@ -70,7 +70,7 @@ namespace Azure.Core.TestFramework
         public T InstrumentClientOptions<T>(T clientOptions) where T : ClientOptions
         {
             clientOptions.Transport = Recording.CreateTransport(clientOptions.Transport);
-            if (Mode == RecordedTestMode.Playback)
+            if (Mode == RecordedTestMode.Playback || Mode == RecordedTestMode.RemotePlayback)
             {
                 // Not making the timeout zero so retry code still goes async
                 clientOptions.Retry.Delay = TimeSpan.FromMilliseconds(10);
